@@ -10,7 +10,7 @@ class SystemMonitor {
     this.onProcessTick = onProcessTick;   // Callback when processes are refreshed
     this.onDiskTick = onDiskTick;         // Callback when disks are refreshed
 
-    // 5-minute rolling window history buffer
+    // Rolling window history buffer (configured by historyMinutes)
     const pointsCount = Math.max(
       30,
       Math.ceil((config.MONITORING.historyMinutes * 60 * 1000) / config.MONITORING.fastPollIntervalMs)
@@ -323,10 +323,44 @@ class SystemMonitor {
   processDisks(fsList) {
     let disks = [];
     if (Array.isArray(fsList) && fsList.length > 0) {
-      let primary = fsList.find(d => d.mount === '/' || d.mount.toLowerCase() === 'c:' || d.mount === 'C:\\');
-      if (!primary && fsList.length > 0) primary = fsList[0];
+      // Set of virtual/overlay/container filesystem types to filter out from general storage
+      const ignoredTypes = new Set([
+        'overlay', 'overlayfs', 'tmpfs', 'devtmpfs', 'squashfs', 'iso9660', 'aufs', 'shm', 'none'
+      ]);
 
-      disks = fsList.map(d => ({
+      const realFs = fsList.filter(d => {
+        if (!d.mount || !d.size) return false;
+        const mountLower = d.mount.toLowerCase();
+        const typeLower = (d.type || '').toLowerCase();
+
+        // Filter out virtual/container overlay filesystems
+        if (ignoredTypes.has(typeLower)) return false;
+
+        // Filter out docker container mounts, snap mounts, and system virtual paths
+        if (
+          mountLower.startsWith('/var/lib/docker') ||
+          mountLower.startsWith('/var/lib/containerd') ||
+          mountLower.startsWith('/snap/') ||
+          mountLower.startsWith('/sys/') ||
+          mountLower.startsWith('/proc/') ||
+          mountLower.startsWith('/dev/') ||
+          mountLower.startsWith('/run/')
+        ) {
+          return false;
+        }
+
+        return true;
+      });
+
+      // Find primary system root partition (/ on Linux, C: on Windows)
+      let primary = realFs.find(d => d.mount === '/' || d.mount.toLowerCase() === 'c:' || d.mount === 'C:\\');
+      if (!primary && fsList.length > 0) {
+        primary = fsList.find(d => d.mount === '/' || d.mount.toLowerCase() === 'c:' || d.mount === 'C:\\') || fsList[0];
+      }
+
+      const listToProcess = realFs.length > 0 ? realFs : (primary ? [primary] : []);
+
+      disks = listToProcess.map(d => ({
         fs: d.fs,
         mount: d.mount,
         type: d.type || 'ext4',

@@ -431,32 +431,68 @@
       }
     }
 
-    // Render partition cards in grid
+    // Render partition cards in grid - matching the top metric cards aesthetic
     disksContainer.innerHTML = disks.map(d => {
       const isPrim = d.isPrimary;
       const pct = (d.usePercent || 0).toFixed(1);
+
+      let badgeClass = 'badge-normal';
+      let badgeText = 'Optimal';
+      if (d.usePercent >= 90) {
+        badgeClass = 'badge-alert';
+        badgeText = 'Almost Full';
+      } else if (d.usePercent >= 75) {
+        badgeClass = 'badge-warn';
+        badgeText = 'Warning';
+      }
+
+      let partitionTitle = isPrim ? 'Primary Storage' : (d.mount === '/home' ? 'Home Partition' : (d.mount.startsWith('/boot') ? 'Boot Partition' : 'Storage Partition'));
+      let subtitle = `Mount ${escapeHtml(d.mount)} (${escapeHtml(d.type || 'ext4')})`;
+
       return `
-        <div class="disk-partition-card">
-          <div class="disk-top-row">
-            <div class="disk-mount-title">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
-                <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
-                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
-              </svg>
-              <span>${escapeHtml(d.mount)}</span>
+        <div class="metric-card card-storage disk-partition-card-rich">
+          <div class="card-header">
+            <div class="card-title-group">
+              <div class="metric-icon storage-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                  <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+                  <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+                </svg>
+              </div>
+              <div>
+                <h3 class="card-title">${partitionTitle}</h3>
+                <span class="card-subtitle" title="${escapeHtml(d.mount)}">${subtitle}</span>
+              </div>
             </div>
-            ${isPrim ? '<span class="disk-mount-badge">Primary Root</span>' : `<span class="badge-mini">${escapeHtml(d.type || 'fs')}</span>`}
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              ${isPrim ? '<span class="disk-mount-badge">Primary Root</span>' : ''}
+              <span class="health-badge ${badgeClass}">${badgeText}</span>
+            </div>
           </div>
 
-          <div class="progress-bar-container" style="margin-bottom: 0.5rem;">
-            <div class="progress-bar-fill fill-storage" style="width: ${Math.min(100, pct)}%;"></div>
+          <div class="metric-big-value">
+            <span class="big-number">${pct}</span>
+            <span class="unit">%</span>
           </div>
 
-          <div class="disk-numbers">
-            <span>Used: <strong>${formatBytes(d.used)}</strong> (${pct}%)</span>
-            <span>Free: <strong>${formatBytes(d.available)}</strong></span>
-            <span>Total: <strong>${formatBytes(d.size)}</strong></span>
+          <div class="progress-bar-container">
+            <div class="progress-bar-fill fill-storage" style="width: ${Math.min(100, d.usePercent || 0)}%;"></div>
+          </div>
+
+          <div class="card-details-row">
+            <div class="detail-item">
+              <span class="detail-label">Total</span>
+              <span class="detail-val font-mono">${formatBytes(d.size)}</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Used</span>
+              <span class="detail-val font-mono">${formatBytes(d.used)}</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Available Free</span>
+              <span class="detail-val font-mono">${formatBytes(d.available)}</span>
+            </div>
           </div>
         </div>
       `;
@@ -707,7 +743,7 @@
   function appendChartPoint(pt) {
     if (!chartInstance) return;
 
-    const maxPoints = 150; // 5 minutes at 2s interval
+    const maxPoints = 450; // 15 minutes at 2s interval
     const timeLabel = formatTime(pt.timestamp);
 
     chartInstance.data.labels.push(timeLabel);

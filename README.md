@@ -7,19 +7,19 @@
 ## 🌟 Key Highlights & Features
 
 1. **Task Manager Level Inspection**:
-   - **5-Minute Telemetry History**: Rolling real-time line charts for CPU %, RAM %, and Swap % using a zero-overhead $O(1)$ Circular Ring Buffer.
+   - **15-Minute Telemetry History**: Rolling real-time line charts for CPU %, RAM %, and Swap % using a zero-overhead $O(1)$ Circular Ring Buffer.
    - **CPU Usage Breakdown**: Real-time total CPU load, user space %, system kernel %, core count, and base frequency.
    - **Memory (RAM) Telemetry**: Used, Free, Active, and Buffers/Cached breakdown with visual progress bar and health status indicators.
    - **Swap Usage**: Allocated virtual memory, swap used, swap free, and percentage gauge.
-   - **Primary Storage & Partitions**: Detection of primary storage root mount (`/` on Linux, `C:` on Windows) showing total size, available free space, used space, and filesystem type.
+   - **Primary Storage & Partitions**: Detection of primary storage root mount (`/` on Linux, `C:` on Windows) showing total size, available free space, used space, and filesystem type. Filtered to ignore docker/container virtual overlay clutter.
    - **Running Services & Process Manager**: Lists all running processes with PID, Process Name, User, Status, % CPU, % RAM, Physical RSS RAM (MB), and Virtual/Swap memory (MB). Includes **instant search** and **multi-column sorting** (by CPU, RAM, RSS, VSZ, PID).
    - **Network Throughput**: Real-time download (RX) and upload (TX) speed calculations in KB/s and MB/s.
    - **System Load Averages**: Linux 1-min, 5-min, and 15-min load averages with core threshold target indicators.
 
 2. **World-Class Lightweight Architecture for 1 vCore / 2GB RAM**:
    - **Adaptive Polling (Eco-Sleep Mode)**: When no dashboard tabs are open in a browser, polling automatically pauses or throttles, ensuring **0.0% CPU overhead** on your VPS while idle!
-   - **O(1) Fixed Circular Ring Buffer**: Pre-allocated memory for 5 minutes of telemetry. No `array.shift()` memory churn or garbage collection pauses.
-   - **Staggered Metric Collection**: Fast metrics (CPU, RAM) poll every 2s, process tables poll every 4s, and static storage polls every 30s.
+   - **O(1) Fixed Circular Ring Buffer**: Pre-allocated memory for 15 minutes of telemetry. No `array.shift()` memory churn or garbage collection pauses.
+   - **Staggered Metric Collection**: Fast metrics (CPU, RAM) poll every 2s, process tables poll every 10s (eliminating synthetic CPU spikes on 1 vCore systems), and static storage polls every 30s.
    - **Payload Truncation**: Only top 25 resource-consuming processes are broadcast over WebSockets, keeping data packets under 5 KB.
 
 3. **Security & Authentication**:
@@ -127,10 +127,10 @@ const CONFIG = {
     host: process.env.HOST || "0.0.0.0",
   },
   MONITORING: {
-    historyMinutes: 5,        // Last 5 minutes history
+    historyMinutes: 15,       // Last 15 minutes history
     fastPollIntervalMs: 2000, // Dynamic metrics (CPU, RAM, Swap)
     slowPollIntervalMs: 30000,// Storage & disks every 30s
-    processPollIntervalMs: 4000, // Top processes every 4s
+    processPollIntervalMs: 10000, // Top processes every 10s
     maxProcesses: 25,         // Payload limit
   }
 };
@@ -142,7 +142,7 @@ const CONFIG = {
 
 ```
 ├── config.js         # Top-level credentials and performance settings
-├── ringBuffer.js     # O(1) in-memory circular buffer for 5-min history
+├── ringBuffer.js     # O(1) in-memory circular buffer for 15-min history
 ├── monitor.js        # High-efficiency system resource collector
 ├── server.js         # Express, JWT authentication & Socket.io pipeline
 ├── package.json      # Dependencies and scripts
