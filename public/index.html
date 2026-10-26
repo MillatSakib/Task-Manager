@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PulseCore — Server Resource & Task Manager</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <!-- Chart.js for lightweight hardware-accelerated 5-min timeline graphs -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <!-- Socket.io Client -->
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+
+  <!-- =========================================================================
+       LOGIN SCREEN (Displayed when unauthenticated)
+       ========================================================================= -->
+  <div id="login-container" class="login-overlay">
+    <div class="login-card">
+      <div class="login-header">
+        <div class="brand-logo">
+          <div class="pulse-ring"></div>
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+          </svg>
+        </div>
+        <h1 class="login-title">PulseCore Monitor</h1>
+        <p class="login-subtitle">Real-time Server Task Manager & Resource Telemetry</p>
+      </div>
+
+      <form id="login-form" class="login-form">
+        <div id="login-error" class="login-error hidden"></div>
+
+        <div class="form-group">
+          <label for="login-email">Email Address</label>
+          <div class="input-wrapper">
+            <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+              <polyline points="22,6 12,13 2,6"></polyline>
+            </svg>
+            <input type="email" id="login-email" placeholder="admin@server.local" required autocomplete="username">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="login-password">Password</label>
+          <div class="input-wrapper">
+            <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+            <input type="password" id="login-password" placeholder="••••••••••••" required autocomplete="current-password">
+            <button type="button" id="toggle-password" class="toggle-password-btn" aria-label="Toggle password view">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="login-badge-info">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          <span>JWT Secure Authentication • Session valid for <strong>90 Days</strong></span>
+        </div>
+
+        <button type="submit" id="login-btn" class="btn-primary login-btn">
+          <span class="btn-text">Connect to Server</span>
+          <div class="btn-spinner hidden"></div>
+        </button>
+
+        <div class="login-quick-hint">
+          <span>Default credentials in <code>config.js</code>:</span>
+          <div>Email: <code>admin@server.local</code></div>
+          <div>Password: <code>Admin#2026@SecurePass!</code></div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       MAIN DASHBOARD (Displayed when authenticated)
+       ========================================================================= -->
+  <div id="dashboard-container" class="dashboard-container hidden">
+
+    <!-- TOP NAVIGATION BAR -->
+    <header class="dashboard-header">
+      <div class="header-left">
+        <div class="brand">
+          <div class="brand-badge-pulse"></div>
+          <span class="brand-title">PulseCore</span>
+          <span class="badge-version">v1.2</span>
+        </div>
+
+        <div class="server-status-pill">
+          <span id="conn-indicator" class="status-dot connected"></span>
+          <span id="conn-text">Live Connected</span>
+        </div>
+
+        <div class="server-info-tags">
+          <span id="host-tag" class="tag"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg> <strong id="val-hostname">Server</strong></span>
+          <span id="os-tag" class="tag"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg> <span id="val-os">Linux</span></span>
+          <span id="uptime-tag" class="tag"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg> <span id="val-uptime">0h 0m</span></span>
+          <span class="tag eco-tag" title="Adaptive Eco Mode saves VPS CPU when not in use"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"></path><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"></path></svg> 1vCore Eco Optimized</span>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <!-- Live Pause/Resume Toggle -->
+        <button id="btn-pause-stream" class="btn-icon" title="Pause or Resume Live Telemetry">
+          <svg id="icon-pause" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+          <svg id="icon-play" class="hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+          <span id="pause-text">Pause</span>
+        </button>
+
+        <!-- Refresh Button -->
+        <button id="btn-manual-refresh" class="btn-icon" title="Refresh metrics immediately">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+        </button>
+
+        <!-- User & Logout -->
+        <div class="user-profile">
+          <div class="user-avatar" id="user-initial">A</div>
+          <span class="user-email" id="user-email-display">admin</span>
+          <button id="btn-logout" class="btn-logout" title="Logout">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+              <polyline points="16 17 21 12 16 7"></polyline>
+              <line x1="21" y1="12" x2="9" y2="12"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- MAIN BODY CONTENT -->
+    <main class="dashboard-main">
+
+      <!-- KEY RESOURCE GAUGES GRID -->
+      <section class="metrics-grid">
+
+        <!-- CPU CARD -->
+        <div class="metric-card card-cpu">
+          <div class="card-header">
+            <div class="card-title-group">
+              <div class="metric-icon cpu-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+                  <rect x="9" y="9" width="6" height="6"></rect>
+                  <line x1="9" y1="1" x2="9" y2="4"></line>
+                  <line x1="15" y1="1" x2="15" y2="4"></line>
+                  <line x1="9" y1="20" x2="9" y2="23"></line>
+                  <line x1="15" y1="20" x2="15" y2="23"></line>
+                  <line x1="20" y1="9" x2="23" y2="9"></line>
+                  <line x1="20" y1="14" x2="23" y2="14"></line>
+                  <line x1="1" y1="9" x2="4" y2="9"></line>
+                  <line x1="1" y1="14" x2="4" y2="14"></line>
+                </svg>
+              </div>
+              <div>
+                <h3 class="card-title">CPU Utilization</h3>
+                <span class="card-subtitle" id="val-cpu-brand">1 vCore @ 2.4 GHz</span>
+              </div>
+            </div>
+            <span id="badge-cpu-health" class="health-badge badge-normal">Normal</span>
+          </div>
+
+          <div class="metric-big-value">
+            <span id="val-cpu-total" class="big-number">0.0</span>
+            <span class="unit">%</span>
+          </div>
+
+          <!-- Progress bar -->
+          <div class="progress-bar-container">
+            <div id="bar-cpu" class="progress-bar-fill fill-cpu" style="width: 0%;"></div>
+          </div>
+
+          <div class="card-details-row">
+            <div class="detail-item">
+              <span class="detail-label">User</span>
+              <span id="val-cpu-user" class="detail-val">0.0%</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">System</span>
+              <span id="val-cpu-sys" class="detail-val">0.0%</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Cores</span>
+              <span id="val-cpu-cores" class="detail-val">1 Core</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- RAM / MEMORY CARD -->
+        <div class="metric-card card-ram">
+          <div class="card-header">
+            <div class="card-title-group">
+              <div class="metric-icon ram-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M6 19v-3"></path>
+                  <path d="M10 19v-3"></path>
+                  <path d="M14 19v-3"></path>
+                  <path d="M18 19v-3"></path>
+                  <path d="M6 8V5"></path>
+                  <path d="M10 8V5"></path>
+                  <path d="M14 8V5"></path>
+                  <path d="M18 8V5"></path>
+                  <rect x="2" y="8" width="20" height="8" rx="1"></rect>
+                </svg>
+              </div>
+              <div>
+                <h3 class="card-title">Memory (RAM)</h3>
+                <span class="card-subtitle" id="val-ram-sub">Total 2.00 GB</span>
+              </div>
+            </div>
+            <span id="badge-ram-health" class="health-badge badge-normal">Healthy</span>
+          </div>
+
+          <div class="metric-big-value">
+            <span id="val-ram-percent" class="big-number">0.0</span>
+            <span class="unit">%</span>
+          </div>
+
+          <div class="progress-bar-container">
+            <div id="bar-ram" class="progress-bar-fill fill-ram" style="width: 0%;"></div>
+          </div>
+
+          <div class="card-details-row">
+            <div class="detail-item">
+              <span class="detail-label">Used</span>
+              <span id="val-ram-used" class="detail-val">0 MB</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Free</span>
+              <span id="val-ram-free" class="detail-val">0 MB</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Cache/Buff</span>
+              <span id="val-ram-cached" class="detail-val">0 MB</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- SWAP CARD -->
+        <div class="metric-card card-swap">
+          <div class="card-header">
+            <div class="card-title-group">
+              <div class="metric-icon swap-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M7 16V4M7 4L3 8M7 4L11 8"></path>
+                  <path d="M17 8V20M17 20L21 16M17 20L13 16"></path>
+                </svg>
+              </div>
+              <div>
+                <h3 class="card-title">Swap Memory</h3>
+                <span class="card-subtitle" id="val-swap-sub">Virtual memory buffer</span>
+              </div>
+            </div>
+            <span id="badge-swap-health" class="health-badge badge-normal">Active</span>
+          </div>
+
+          <div class="metric-big-value">
+            <span id="val-swap-percent" class="big-number">0.0</span>
+            <span class="unit">%</span>
+          </div>
+
+          <div class="progress-bar-container">
+            <div id="bar-swap" class="progress-bar-fill fill-swap" style="width: 0%;"></div>
+          </div>
+
+          <div class="card-details-row">
+            <div class="detail-item">
+              <span class="detail-label">Used</span>
+              <span id="val-swap-used" class="detail-val">0 MB</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Free</span>
+              <span id="val-swap-free" class="detail-val">0 MB</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Total</span>
+              <span id="val-swap-total" class="detail-val">0 MB</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- PRIMARY STORAGE CARD -->
+        <div class="metric-card card-storage">
+          <div class="card-header">
+            <div class="card-title-group">
+              <div class="metric-icon storage-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                  <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+                  <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+                </svg>
+              </div>
+              <div>
+                <h3 class="card-title">Primary Storage</h3>
+                <span class="card-subtitle" id="val-disk-mount">Mount / (ext4)</span>
+              </div>
+            </div>
+            <span id="badge-disk-health" class="health-badge badge-normal">Optimal</span>
+          </div>
+
+          <div class="metric-big-value">
+            <span id="val-disk-percent" class="big-number">0.0</span>
+            <span class="unit">%</span>
+          </div>
+
+          <div class="progress-bar-container">
+            <div id="bar-disk" class="progress-bar-fill fill-storage" style="width: 0%;"></div>
+          </div>
+
+          <div class="card-details-row">
+            <div class="detail-item">
+              <span class="detail-label">Total</span>
+              <span id="val-disk-total" class="detail-val">0 GB</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Used</span>
+              <span id="val-disk-used" class="detail-val">0 GB</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Available Free</span>
+              <span id="val-disk-free" class="detail-val">0 GB</span>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- SECONDARY TELEMETRY ROW (Network & System Load) -->
+      <section class="telemetry-grid">
+        <!-- NETWORK I/O -->
+        <div class="telemetry-card card-net">
+          <div class="card-header">
+            <div class="card-title-group">
+              <div class="metric-icon net-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M5 12.55a11 11 0 0 1 14.08 0"></path>
+                  <path d="M1.42 9a16 16 0 0 1 21.16 0"></path>
+                  <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+                  <line x1="12" y1="20" x2="12.01" y2="20"></line>
+                </svg>
+              </div>
+              <h3 class="card-title">Network Throughput</h3>
+            </div>
+            <span class="badge-mini">Real-time I/O</span>
+          </div>
+
+          <div class="net-stats-container">
+            <div class="net-stat-box down">
+              <div class="net-stat-header">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
+                <span>Download (RX)</span>
+              </div>
+              <div class="net-speed" id="val-net-rx">0.0 KB/s</div>
+            </div>
+
+            <div class="net-stat-box up">
+              <div class="net-stat-header">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+                <span>Upload (TX)</span>
+              </div>
+              <div class="net-speed" id="val-net-tx">0.0 KB/s</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- LOAD AVERAGES -->
+        <div class="telemetry-card card-load">
+          <div class="card-header">
+            <div class="card-title-group">
+              <div class="metric-icon load-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M18 20V10"></path>
+                  <path d="M12 20V4"></path>
+                  <path d="M6 20v-6"></path>
+                </svg>
+              </div>
+              <h3 class="card-title">System Load Average</h3>
+            </div>
+            <span class="badge-mini" id="val-load-cores-desc">Target &le; 1.0</span>
+          </div>
+
+          <div class="load-avg-boxes">
+            <div class="load-box">
+              <span class="load-time">1 Min</span>
+              <span id="val-load-1" class="load-num">0.00</span>
+            </div>
+            <div class="load-box">
+              <span class="load-time">5 Min</span>
+              <span id="val-load-5" class="load-num">0.00</span>
+            </div>
+            <div class="load-box">
+              <span class="load-time">15 Min</span>
+              <span id="val-load-15" class="load-num">0.00</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 5-MINUTE HISTORICAL RESOURCE TIMELINE -->
+      <section class="section-container chart-section">
+        <div class="section-header">
+          <div class="section-title-group">
+            <h2 class="section-title">5-Minute Telemetry History</h2>
+            <p class="section-subtitle">Real-time sliding window (Circular Ring Buffer O(1) in-memory storage)</p>
+          </div>
+          <div class="chart-toggles" id="chart-toggles">
+            <button class="chart-toggle-btn active" data-dataset="0"><span class="dot dot-cpu"></span> CPU</button>
+            <button class="chart-toggle-btn active" data-dataset="1"><span class="dot dot-ram"></span> RAM</button>
+            <button class="chart-toggle-btn active" data-dataset="2"><span class="dot dot-swap"></span> Swap</button>
+          </div>
+        </div>
+
+        <div class="chart-canvas-wrapper">
+          <canvas id="timelineChart"></canvas>
+        </div>
+      </section>
+
+      <!-- ALL STORAGE DRIVES & FILE SYSTEMS -->
+      <section class="section-container disks-section">
+        <div class="section-header">
+          <div class="section-title-group">
+            <h2 class="section-title">Storage & Partitions</h2>
+            <p class="section-subtitle">Mounted filesystems, capacity, free and used space</p>
+          </div>
+        </div>
+
+        <div id="disks-container" class="disks-list-grid">
+          <!-- Dynamically populated disk cards -->
+        </div>
+      </section>
+
+      <!-- TASK MANAGER / RUNNING SERVICES & PROCESSES -->
+      <section class="section-container processes-section">
+        <div class="section-header processes-header">
+          <div class="section-title-group">
+            <h2 class="section-title">Task Manager — Running Services & Processes</h2>
+            <div class="process-counts-pill">
+              <span>Total: <strong id="val-proc-total">0</strong></span>
+              <span>Running: <strong id="val-proc-running" class="text-success">0</strong></span>
+              <span>Sleeping: <strong id="val-proc-sleeping">0</strong></span>
+            </div>
+          </div>
+
+          <!-- Controls: Search & Filters -->
+          <div class="process-controls">
+            <div class="search-box">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input type="text" id="proc-search" placeholder="Filter by name, PID, or user...">
+            </div>
+
+            <div class="sort-select-wrapper">
+              <label for="proc-sort-by">Sort By:</label>
+              <select id="proc-sort-by" class="select-styled">
+                <option value="cpu" selected>% CPU</option>
+                <option value="mem">% RAM</option>
+                <option value="memRss">RAM RSS (MB)</option>
+                <option value="memVsz">Virtual Memory</option>
+                <option value="pid">PID</option>
+                <option value="name">Process Name</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- PROCESSES TABLE -->
+        <div class="table-responsive">
+          <table class="processes-table">
+            <thead>
+              <tr>
+                <th class="col-proc">Process / Service Name</th>
+                <th class="col-pid">PID</th>
+                <th class="col-user">User</th>
+                <th class="col-state">Status</th>
+                <th class="col-cpu text-right">% CPU</th>
+                <th class="col-mem text-right">% RAM</th>
+                <th class="col-rss text-right">Physical RAM</th>
+                <th class="col-vsz text-right">Virtual / Swap</th>
+              </tr>
+            </thead>
+            <tbody id="processes-tbody">
+              <tr>
+                <td colspan="8" class="table-loading">Waiting for live process stream...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- FOOTER -->
+    <footer class="dashboard-footer">
+      <div>
+        <strong>PulseCore Server Resource Monitor</strong> &bull; Lightweight high-efficiency telemetry for VPS
+      </div>
+      <div class="footer-links">
+        <span>Active JWT Session (90-day expiry)</span>
+      </div>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
