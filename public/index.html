@@ -112,6 +112,15 @@
       </div>
 
       <div class="header-right">
+        <!-- Clear RAM Action -->
+        <button id="btn-clear-ram" class="btn-icon btn-clear-ram" title="Run free-ram.sh to drop caches and stop idle Docker services">
+          <svg id="icon-clear-ram" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
+          </svg>
+          <span id="spinner-clear-ram" class="btn-mini-spinner hidden"></span>
+          <span id="text-clear-ram">Clear RAM</span>
+        </button>
+
         <!-- Live Pause/Resume Toggle -->
         <button id="btn-pause-stream" class="btn-icon" title="Pause or Resume Live Telemetry">
           <svg id="icon-pause" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
@@ -515,6 +524,62 @@
         <span>Active JWT Session (90-day expiry)</span>
       </div>
     </footer>
+  </div>
+
+  <!-- FLOATING ACTION TOAST -->
+  <div id="action-toast" class="action-toast hidden" role="status" aria-live="polite">
+    <div class="toast-content">
+      <div class="toast-header">
+        <span id="toast-title" class="toast-title">Status</span>
+        <button type="button" id="toast-close-btn" class="toast-close-btn" aria-label="Dismiss notification">&times;</button>
+      </div>
+      <p id="toast-message" class="toast-message"></p>
+      <div class="toast-actions">
+        <button type="button" id="toast-details-btn" class="toast-details-btn hidden">View Output</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- RAM CLEANUP OUTPUT MODAL -->
+  <div id="clear-ram-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="clear-ram-modal-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <h3 id="clear-ram-modal-title" class="modal-title">RAM Cleanup Output</h3>
+          <span class="modal-subtitle">Execution details from <code>free-ram.sh</code></span>
+        </div>
+        <button type="button" id="clear-ram-modal-close" class="modal-close-btn" aria-label="Close modal">&times;</button>
+      </div>
+
+      <div id="clear-ram-summary" class="modal-summary-grid hidden">
+        <div class="modal-stat-box">
+          <span class="modal-stat-label">Before Used</span>
+          <span id="clear-ram-before" class="modal-stat-val">-</span>
+        </div>
+        <div class="modal-stat-box">
+          <span class="modal-stat-label">After Used</span>
+          <span id="clear-ram-after" class="modal-stat-val">-</span>
+        </div>
+        <div class="modal-stat-box">
+          <span class="modal-stat-label">Freed RAM</span>
+          <span id="clear-ram-freed" class="modal-stat-val text-success">-</span>
+        </div>
+        <div class="modal-stat-box">
+          <span class="modal-stat-label">Duration</span>
+          <span id="clear-ram-duration" class="modal-stat-val">-</span>
+        </div>
+      </div>
+
+      <div id="clear-ram-hint-box" class="modal-hint-box hidden">
+        <span class="modal-hint-title">Setup Required (Root / Sudoers)</span>
+        <pre id="clear-ram-hint-text" class="modal-hint-pre"></pre>
+      </div>
+
+      <div class="modal-output-wrapper">
+        <span class="modal-output-label">Script Output</span>
+        <pre id="clear-ram-output" class="modal-output-pre"></pre>
+      </div>
+    </div>
   </div>
 
   <script src="app.js"></script>

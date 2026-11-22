@@ -1,6 +1,9 @@
+const fs = require('fs');
+const os = require('os');
 const http = require('http');
 const path = require('path');
 const crypto = require('crypto');
+const { execFile } = require('child_process');
 const express = require('express');
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
@@ -167,6 +170,193 @@ app.get('/api/verify', authenticateToken, (req, res) => {
 // System Health API (Protected)
 app.get('/api/snapshot', authenticateToken, (req, res) => {
   res.json(monitor.getInitialState());
+});
+
+// -----------------------------------------------------------------------------
+// SYSTEM ACTION: CLEAR RAM (Runs free-ram.sh)
+// -----------------------------------------------------------------------------
+let isClearingRam = false;
+let lastClearRamAt = 0;
+
+/**
+ * Executes the RAM cleanup script safely using execFile without shell interpolation.
+ */
+async function runClearRamScript(scriptPath, timeoutMs) {
+  if (process.platform !== 'linux') {
+    throw {
+      status: 501,
+      code: 'UNSUPPORTED_OS',
+      message: 'Clear RAM script is only supported on Linux servers.'
+    };
+  }
+
+  try {
+    await fs.promises.access(scriptPath, fs.constants.F_OK);
+  } catch {
+    throw {
+      status: 500,
+      code: 'SCRIPT_NOT_FOUND',
+      message: 'RAM cleanup script (free-ram.sh) was not found on the server.'
+    };
+  }
+
+  const isRoot = typeof process.geteuid === 'function' && process.geteuid() === 0;
+  let cmd;
+  let args;
+
+  if (isRoot) {
+    cmd = '/bin/bash';
+    args = [scriptPath];
+  } else {
+    let isExecutable = false;
+    try {
+      await fs.promises.access(scriptPath, fs.constants.X_OK);
+      isExecutable = true;
+    } catch {
+      isExecutable = false;
+    }
+
+    cmd = 'sudo';
+    args = isExecutable ? ['-n', scriptPath] : ['-n', '/bin/bash', scriptPath];
+  }
+
+  return new Promise((resolve, reject) => {
+    execFile(
+      cmd,
+      args,
+      {
+        timeout: timeoutMs,
+        maxBuffer: 256 * 1024,
+        env: {
+          ...process.env,
+          PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+        }
+      },
+      (err, stdout, stderr) => {
+        const output = [stdout, stderr]
+          .filter(Boolean)
+          .map(s => s.trim())
+          .filter(Boolean)
+          .join('\n');
+
+        if (!err) {
+          return resolve({ output });
+        }
+
+        if (err.killed || err.signal === 'SIGTERM') {
+          return reject({
+            status: 504,
+            code: 'TIMEOUT',
+            message: 'RAM cleanup timed out.',
+            output
+          });
+        }
+
+        if (
+          !isRoot &&
+          (err.code === 'ENOENT' ||
+            /password is required|sudo:|not allowed to execute|Please run as root/i.test(output))
+        ) {
+          let currentUser = 'your-user';
+          try {
+            currentUser = os.userInfo().username || 'your-user';
+          } catch {
+            currentUser = 'your-user';
+          }
+
+          return reject({
+            status: 500,
+            code: 'PERMISSION_REQUIRED',
+            message: 'Root privileges are required to run free-ram.sh.',
+            hint: `Run PulseCore as root (e.g. systemd User=root) or allow passwordless sudo:\necho "${currentUser} ALL=(root) NOPASSWD: ${scriptPath}" | sudo tee /etc/sudoers.d/pulsecore-clear-ram && sudo chmod 440 /etc/sudoers.d/pulsecore-clear-ram`,
+            output: output || err.message
+          });
+        }
+
+        return reject({
+          status: 500,
+          code: 'EXECUTION_FAILED',
+          message: 'RAM cleanup script failed.',
+          output: output || err.message
+        });
+      }
+    );
+  });
+}
+
+app.post('/api/clear-ram', authenticateToken, async (req, res) => {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ success: false, error: 'Forbidden: Admin access required.' });
+  }
+
+  if (isClearingRam) {
+    return res.status(409).json({
+      success: false,
+      code: 'IN_PROGRESS',
+      error: 'RAM cleanup is already in progress. Please wait.'
+    });
+  }
+
+  const cooldownMs = CONFIG.ACTIONS?.clearRamCooldownMs ?? 10000;
+  const elapsed = Date.now() - lastClearRamAt;
+  if (lastClearRamAt > 0 && elapsed < cooldownMs) {
+    const retryAfterSeconds = Math.ceil((cooldownMs - elapsed) / 1000);
+    return res.status(429).json({
+      success: false,
+      code: 'COOLDOWN',
+      error: `Please wait ${retryAfterSeconds} second(s) before clearing RAM again.`,
+      retryAfterSeconds
+    });
+  }
+
+  isClearingRam = true;
+  try {
+    const startedAt = Date.now();
+    await monitor.pollDynamicMetrics();
+    const beforeMem = monitor.latestMetrics?.memory ? { ...monitor.latestMetrics.memory } : null;
+
+    const scriptPath = CONFIG.ACTIONS?.clearRamScript || path.join(__dirname, 'free-ram.sh');
+    const timeoutMs = CONFIG.ACTIONS?.clearRamTimeoutMs || 30000;
+    const result = await runClearRamScript(scriptPath, timeoutMs);
+
+    lastClearRamAt = Date.now();
+
+    await Promise.allSettled([
+      monitor.pollDynamicMetrics(),
+      monitor.pollProcesses()
+    ]);
+
+    const afterMem = monitor.latestMetrics?.memory ? { ...monitor.latestMetrics.memory } : null;
+    const freedBytes = (beforeMem && afterMem) ? Math.max(0, beforeMem.used - afterMem.used) : 0;
+    const droppedCacheBytes = (beforeMem && afterMem) ? Math.max(0, beforeMem.buffcache - afterMem.buffcache) : 0;
+
+    console.log(
+      `🧹 [Action] RAM cleared by ${req.user.email} in ${Date.now() - startedAt}ms (Freed: ${Math.round(freedBytes / (1024 * 1024))} MB, Cache dropped: ${Math.round(droppedCacheBytes / (1024 * 1024))} MB)`
+    );
+
+    return res.json({
+      success: true,
+      message: 'RAM cleanup completed successfully.',
+      before: beforeMem,
+      after: afterMem,
+      freedBytes,
+      droppedCacheBytes,
+      durationMs: Date.now() - startedAt,
+      output: result.output,
+      metrics: monitor.latestMetrics
+    });
+  } catch (err) {
+    console.error('❌ [Action] Clear RAM failed:', err.message || err);
+    return res.status(err.status || 500).json({
+      success: false,
+      code: err.code || 'EXECUTION_FAILED',
+      error: err.message || 'RAM cleanup failed.',
+      hint: err.hint || null,
+      output: err.output || ''
+    });
+  } finally {
+    isClearingRam = false;
+  }
 });
 
 // -----------------------------------------------------------------------------

@@ -16,6 +16,9 @@
   let serverBootTimestamp = null;
   let clientUptimeTimer = null;
   let staticSpecsCache = null;
+  let isClearingRamRequest = false;
+  let lastClearRamResult = null;
+  let toastAutoHideTimer = null;
 
   // DOM Elements - Auth
   const loginOverlay = document.getElementById('login-container');
@@ -36,8 +39,30 @@
   const iconPlay = document.getElementById('icon-play');
   const pauseText = document.getElementById('pause-text');
   const btnRefresh = document.getElementById('btn-manual-refresh');
+  const btnClearRam = document.getElementById('btn-clear-ram');
+  const iconClearRam = document.getElementById('icon-clear-ram');
+  const spinnerClearRam = document.getElementById('spinner-clear-ram');
+  const textClearRam = document.getElementById('text-clear-ram');
+  const cardRam = document.querySelector('.card-ram');
   const userInitial = document.getElementById('user-initial');
   const userEmailDisplay = document.getElementById('user-email-display');
+
+  // Toast & Clear RAM Output Modal
+  const actionToast = document.getElementById('action-toast');
+  const toastTitle = document.getElementById('toast-title');
+  const toastMessage = document.getElementById('toast-message');
+  const toastDetailsBtn = document.getElementById('toast-details-btn');
+  const toastCloseBtn = document.getElementById('toast-close-btn');
+  const clearRamModal = document.getElementById('clear-ram-modal');
+  const clearRamModalClose = document.getElementById('clear-ram-modal-close');
+  const clearRamSummary = document.getElementById('clear-ram-summary');
+  const clearRamBefore = document.getElementById('clear-ram-before');
+  const clearRamAfter = document.getElementById('clear-ram-after');
+  const clearRamFreed = document.getElementById('clear-ram-freed');
+  const clearRamDuration = document.getElementById('clear-ram-duration');
+  const clearRamHintBox = document.getElementById('clear-ram-hint-box');
+  const clearRamHintText = document.getElementById('clear-ram-hint-text');
+  const clearRamOutput = document.getElementById('clear-ram-output');
 
   // Server Header Info
   const valHostname = document.getElementById('val-hostname');
@@ -802,6 +827,202 @@
       socket.emit('request:refresh');
     }
   });
+
+  // ---------------------------------------------------------------------------
+  // CLEAR RAM ACTION, TOAST & OUTPUT MODAL
+  // ---------------------------------------------------------------------------
+  function hideToast() {
+    if (toastAutoHideTimer) {
+      clearTimeout(toastAutoHideTimer);
+      toastAutoHideTimer = null;
+    }
+    if (actionToast) {
+      actionToast.classList.add('hidden');
+    }
+  }
+
+  function showToast({ type = 'success', title, message, hasDetails = false }) {
+    if (!actionToast) return;
+    if (toastAutoHideTimer) {
+      clearTimeout(toastAutoHideTimer);
+      toastAutoHideTimer = null;
+    }
+
+    actionToast.className = `action-toast toast-${type}`;
+    toastTitle.textContent = title || 'Notification';
+    toastMessage.textContent = message || '';
+
+    if (hasDetails) {
+      toastDetailsBtn.classList.remove('hidden');
+    } else {
+      toastDetailsBtn.classList.add('hidden');
+    }
+
+    toastAutoHideTimer = setTimeout(() => {
+      hideToast();
+    }, 9000);
+  }
+
+  function openClearRamModal(result) {
+    if (!clearRamModal || !result) return;
+
+    if (result.before && result.after) {
+      clearRamBefore.textContent = `${formatBytes(result.before.used)} (${(result.before.percent || 0).toFixed(1)}%)`;
+      clearRamAfter.textContent = `${formatBytes(result.after.used)} (${(result.after.percent || 0).toFixed(1)}%)`;
+      clearRamFreed.textContent = result.freedBytes > 0
+        ? formatBytes(result.freedBytes)
+        : (result.droppedCacheBytes > 0 ? `${formatBytes(result.droppedCacheBytes)} cache` : '0 B');
+      clearRamDuration.textContent = `${result.durationMs || 0} ms`;
+      clearRamSummary.classList.remove('hidden');
+    } else {
+      clearRamSummary.classList.add('hidden');
+    }
+
+    if (result.hint) {
+      clearRamHintText.textContent = result.hint;
+      clearRamHintBox.classList.remove('hidden');
+    } else {
+      clearRamHintText.textContent = '';
+      clearRamHintBox.classList.add('hidden');
+    }
+
+    clearRamOutput.textContent = result.output || result.error || 'No script output captured.';
+    clearRamModal.classList.remove('hidden');
+  }
+
+  function closeClearRamModal() {
+    if (clearRamModal) {
+      clearRamModal.classList.add('hidden');
+    }
+  }
+
+  if (toastCloseBtn) {
+    toastCloseBtn.addEventListener('click', hideToast);
+  }
+
+  if (toastDetailsBtn) {
+    toastDetailsBtn.addEventListener('click', () => {
+      if (lastClearRamResult) {
+        openClearRamModal(lastClearRamResult);
+      }
+    });
+  }
+
+  if (clearRamModalClose) {
+    clearRamModalClose.addEventListener('click', closeClearRamModal);
+  }
+
+  if (clearRamModal) {
+    clearRamModal.addEventListener('click', (e) => {
+      if (e.target === clearRamModal) {
+        closeClearRamModal();
+      }
+    });
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && clearRamModal && !clearRamModal.classList.contains('hidden')) {
+      closeClearRamModal();
+    }
+  });
+
+  if (btnClearRam) {
+    btnClearRam.addEventListener('click', async () => {
+      if (isClearingRamRequest) return;
+
+      const token = getToken();
+      if (!token) {
+        showLogin();
+        return;
+      }
+
+      isClearingRamRequest = true;
+      btnClearRam.disabled = true;
+      iconClearRam.classList.add('hidden');
+      spinnerClearRam.classList.remove('hidden');
+      textClearRam.textContent = 'Cleaning...';
+
+      try {
+        const res = await fetch('/api/clear-ram', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        let data = {};
+        try {
+          data = await res.json();
+        } catch {
+          data = {};
+        }
+
+        if (res.status === 401 || (res.status === 403 && !data.code)) {
+          clearSession();
+          showLogin();
+          return;
+        }
+
+        if (!res.ok || !data.success) {
+          lastClearRamResult = data;
+          const isWarn = res.status === 409 || res.status === 429;
+          showToast({
+            type: isWarn ? 'warn' : 'error',
+            title: isWarn ? 'Clear RAM Busy' : 'Clear RAM Failed',
+            message: data.error || 'Could not execute RAM cleanup script.',
+            hasDetails: Boolean(data.output || data.hint)
+          });
+          return;
+        }
+
+        lastClearRamResult = data;
+
+        if (data.metrics) {
+          renderDynamicMetrics(data.metrics);
+        }
+
+        if (cardRam) {
+          cardRam.classList.remove('ram-cleaned-flash');
+          void cardRam.offsetWidth;
+          cardRam.classList.add('ram-cleaned-flash');
+          setTimeout(() => cardRam.classList.remove('ram-cleaned-flash'), 1200);
+        }
+
+        const beforePct = data.before ? `${(data.before.percent || 0).toFixed(1)}%` : null;
+        const afterPct = data.after ? `${(data.after.percent || 0).toFixed(1)}%` : null;
+        let summaryMsg = 'RAM cleanup completed successfully.';
+
+        if (data.freedBytes > 0 && beforePct && afterPct) {
+          summaryMsg = `Freed ${formatBytes(data.freedBytes)} (${beforePct} → ${afterPct})`;
+        } else if (data.droppedCacheBytes > 0) {
+          summaryMsg = `Dropped ${formatBytes(data.droppedCacheBytes)} cache/buffers${beforePct && afterPct ? ` (${beforePct} → ${afterPct})` : ''}`;
+        } else if (beforePct && afterPct) {
+          summaryMsg = `Cleanup completed (${beforePct} → ${afterPct})`;
+        }
+
+        showToast({
+          type: 'success',
+          title: 'RAM Cleaned',
+          message: summaryMsg,
+          hasDetails: Boolean(data.output)
+        });
+      } catch (err) {
+        showToast({
+          type: 'error',
+          title: 'Clear RAM Failed',
+          message: err.message || 'Network error while running RAM cleanup.',
+          hasDetails: false
+        });
+      } finally {
+        isClearingRamRequest = false;
+        btnClearRam.disabled = false;
+        iconClearRam.classList.remove('hidden');
+        spinnerClearRam.classList.add('hidden');
+        textClearRam.textContent = 'Clear RAM';
+      }
+    });
+  }
 
   // ---------------------------------------------------------------------------
   // UTILITY HELPERS

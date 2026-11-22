@@ -2,6 +2,7 @@
 // SERVER CONFIGURATION & AUTHENTICATION SETTINGS
 // You can edit your login email and password right here in this variable!
 // ==============================================================================
+const path = require('path');
 require('dotenv').config();
 
 const CONFIG = {
@@ -28,6 +29,15 @@ const CONFIG = {
     processPollIntervalMs: 10000, // Top processes list every 10s (eliminates artificial CPU spikes on 1 vCore VPS)
     maxProcesses: 25,         // Track top 25 processes to prevent CPU/RAM overhead
     idleTimeoutMs: 15000,     // Sleep/throttle metric gathering when 0 clients connected
+  },
+
+  // 🧹 SYSTEM ACTIONS
+  ACTIONS: {
+    clearRamScript: process.env.CLEAR_RAM_SCRIPT
+      ? path.resolve(process.env.CLEAR_RAM_SCRIPT)
+      : path.join(__dirname, 'free-ram.sh'),
+    clearRamCooldownMs: 10000, // 10 seconds cooldown between runs
+    clearRamTimeoutMs: 30000,  // 30 seconds max execution timeout
   }
 };
 

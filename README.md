@@ -15,6 +15,7 @@
    - **Running Services & Process Manager**: Lists all running processes with PID, Process Name, User, Status, % CPU, % RAM, Physical RSS RAM (MB), and Virtual/Swap memory (MB). Includes **instant search** and **multi-column sorting** (by CPU, RAM, RSS, VSZ, PID).
    - **Network Throughput**: Real-time download (RX) and upload (TX) speed calculations in KB/s and MB/s.
    - **System Load Averages**: Linux 1-min, 5-min, and 15-min load averages with core threshold target indicators.
+   - **One-Click Clear RAM Action**: Header **Clear RAM** button executes `free-ram.sh` (`sync` + `/proc/sys/vm/drop_caches` and stops idle Docker/containerd services with zero active containers), displays before/after RAM usage, and lets you inspect the full script output.
 
 2. **World-Class Lightweight Architecture for 1 vCore / 2GB RAM**:
    - **Adaptive Polling (Eco-Sleep Mode)**: When no dashboard tabs are open in a browser, polling automatically pauses or throttles, ensuring **0.0% CPU overhead** on your VPS while idle!
@@ -110,6 +111,16 @@ sudo systemctl enable pulsecore
 sudo systemctl start pulsecore
 ```
 
+### Clear RAM Permissions (`free-ram.sh`)
+The dashboard's **Clear RAM** button executes [`free-ram.sh`](file:///mnt/907986f8-0907-4815-ac5f-4de9a2cac337/Task-Manager/free-ram.sh), which requires root privileges to drop kernel caches (`/proc/sys/vm/drop_caches`) and manage idle `docker.service`/`containerd.service`:
+- If PulseCore runs as `root` (e.g., `User=root` in systemd above), it works out of the box.
+- If PulseCore runs under a non-root user (e.g., via PM2), allow passwordless `sudo` specifically for `free-ram.sh`:
+  ```bash
+  chmod +x /path/to/Task-Manager/free-ram.sh
+  echo "YOUR_USER ALL=(root) NOPASSWD: /path/to/Task-Manager/free-ram.sh" | sudo tee /etc/sudoers.d/pulsecore-clear-ram
+  sudo chmod 440 /etc/sudoers.d/pulsecore-clear-ram
+  ```
+
 ---
 
 ## ⚙️ Configuration (`config.js`)
@@ -142,6 +153,7 @@ const CONFIG = {
 
 ```
 ├── config.js         # Top-level credentials and performance settings
+├── free-ram.sh       # Linux RAM cache & idle Docker cleanup script
 ├── ringBuffer.js     # O(1) in-memory circular buffer for 15-min history
 ├── monitor.js        # High-efficiency system resource collector
 ├── server.js         # Express, JWT authentication & Socket.io pipeline
